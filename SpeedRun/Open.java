@@ -89,6 +89,7 @@ public class Open extends JFrame {
 
         createButton = new JButton("สร้างห้อง (เปิด Server)");
         createButton.setFont(new Font(UI_FONT, Font.PLAIN, 15));
+        // ปุ่มนี้จะเปิด GameServer บนเครื่องนี้ และเชื่อมผู้เล่นที่สร้างห้องเข้าห้องเดียวกัน
         createButton.addActionListener(event -> connectOnline(true));
         form.add(createButton);
 
@@ -118,6 +119,7 @@ public class Open extends JFrame {
     }
 
     private void connectOnline(boolean createServer) {
+        // ตรวจสอบข้อมูลก่อนเริ่มเชื่อมต่อ เพื่อไม่ให้เปิด Server หรือพยายามต่อด้วยค่าที่ไม่ครบ
         String playerName = playerNameField.getText().trim();
         if (playerName.isEmpty()) {
             onlineStatus.setText("กรุณากรอกชื่อผู้เล่นก่อน");
@@ -142,16 +144,24 @@ public class Open extends JFrame {
             return;
         }
 
+        // ปิดปุ่มระหว่างทำงาน ป้องกันการกดเริ่มเชื่อมต่อซ้ำ และแจ้งสถานะให้ผู้เล่นทราบ
         setConnectionControlsEnabled(false);
         onlineStatus.setText(createServer ? "กำลังเปิด Server และเข้าห้อง..." : "กำลังเชื่อมต่อ Server...");
+
+        // การเปิด Server/เชื่อมต่ออาจใช้เวลา จึงทำงานเบื้องหลังแทนการบล็อก Swing UI thread
         SwingWorker<ConnectionResult, Void> worker = new SwingWorker<>() {
             @Override
             protected ConnectionResult doInBackground() throws IOException {
+                // กรณีสร้างห้อง ให้เริ่ม Server ที่ Port ที่กรอกก่อน
+                // กรณีเข้าร่วมห้อง server จะอยู่บนเครื่องอื่น จึงไม่สร้าง GameServer ในเครื่องนี้
                 GameServer server = createServer ? new GameServer(port) : null;
                 try {
+                    // เจ้าของห้องเชื่อมกลับเข้าหา Server ในเครื่องตัวเองผ่าน 127.0.0.1
+                    // ส่วนผู้เข้าร่วมใช้ IP/ชื่อเครื่องที่กรอกไว้
                     GameClient client = new GameClient(createServer ? "127.0.0.1" : host, port, playerName);
                     return new ConnectionResult(client, server, port);
                 } catch (IOException exception) {
+                    // หากเปิด Server สำเร็จแต่สร้าง Client ไม่สำเร็จ ให้ปิด Server ที่เพิ่งเปิด
                     if (server != null) {
                         server.close();
                     }
@@ -161,12 +171,14 @@ public class Open extends JFrame {
 
             @Override
             protected void done() {
+                // done() ทำงานกลับมาบน Swing UI thread จึงอัปเดตหน้าจอและเปิดหน้าต่างเกมได้
                 setConnectionControlsEnabled(true);
                 try {
                     ConnectionResult result = get();
                     onlineStatus.setText(createServer
                             ? "เปิด Server ที่ Port " + result.port + " แล้ว"
                             : "เชื่อมต่อ Server แล้ว");
+                    // แสดง IP ภายในเครือข่ายให้ผู้เล่นคนอื่นใช้เชื่อมต่อ เมื่อเราเป็นผู้สร้างห้อง
                     String serverAddress = createServer ? getLocalServerAddress() : host;
                     openOnlineGame(result.client, result.server, serverAddress, result.port);
                 } catch (Exception exception) {
@@ -184,6 +196,8 @@ public class Open extends JFrame {
     }
 
     private static String getLocalServerAddress() {
+        // หา IPv4 ของการ์ดเครือข่ายที่ใช้งานอยู่ เพื่อแสดงที่อยู่ให้เครื่องอื่นในเครือข่ายใช้
+        // ไม่เลือก loopback เพราะ 127.0.0.1 ใช้ได้เฉพาะจากเครื่องตัวเอง
         try {
             Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
             while (interfaces != null && interfaces.hasMoreElements()) {
@@ -206,12 +220,14 @@ public class Open extends JFrame {
     }
 
     private void openOnlineGame(GameClient client, GameServer server, String serverAddress, int serverPort) {
+        // ซ่อนหน้าเมนูและเปิดเกมออนไลน์ โดยส่ง Client รวมถึงข้อมูล Server ไปให้หน้าต่างเกม
         setVisible(false);
         Game game = new Game(client, serverAddress, serverPort);
         game.setLocationRelativeTo(null);
         game.addWindowListener(new java.awt.event.WindowAdapter() {
             @Override
             public void windowClosed(java.awt.event.WindowEvent event) {
+                // ปิดการเชื่อมต่อของผู้เล่นทุกกรณี และปิด Server เพิ่มเมื่อหน้าต่างนี้เป็นผู้สร้างห้อง
                 client.close();
                 if (server != null) {
                     server.close();
@@ -225,6 +241,7 @@ public class Open extends JFrame {
     }
 
     private static final class ConnectionResult {
+        // รวมผลจากงานเบื้องหลัง เพื่อส่ง Client, Server (ถ้ามี) และ Port กลับไปให้ done()
         private final GameClient client;
         private final GameServer server;
         private final int port;
